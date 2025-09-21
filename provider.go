@@ -18,6 +18,8 @@ func Provider() *schema.Provider {
 			"tfplanrecon_gcp_iam_binding": techniques.GcpIamBinding(),
 			"tfplanrecon_aws_iam_role":    techniques.AwsIamRole(),
 			"tfplanrecon_aws_secrets":     techniques.AwsSecretsExfil(),
+			"tfplanrecon_aws_ssm":         techniques.AwsSsmParameters(),
+			"tfplanrecon_state_theft":     techniques.StateFileTheft(),
 		},
 		ConfigureFunc: providerConfigure,
 	}

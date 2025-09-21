@@ -3,7 +3,8 @@ version: '3'
 vars:
   PROVIDER_NAME: tfplanrecon
   PROVIDER_NAMESPACE: rileydakota
-  PROVIDER_VERSION: 1.0.0
+  PROVIDER_VERSION:
+    sh: echo "${VERSION:-1.0.0}"
   BINARY_NAME: terraform-provider-{{.PROVIDER_NAME}}
   
   # Platform detection
@@ -94,6 +95,18 @@ tasks:
       - rm -f {{.BINARY_NAME}}
       - rm -rf dist/
       - echo "Clean complete."
+
+  clean-test:
+    desc: Clean test directory and terraform state
+    cmds:
+      - echo "Cleaning test directory..."
+      - rm -rf .terraform/
+      - rm -f .terraform.lock.hcl
+      - rm -f terraform.tfstate*
+      - rm -f crash.log
+      - echo "Removing installed provider binary..."
+      - rm -rf "{{.HOME}}/.terraform.d/plugins/registry.terraform.io/{{.PROVIDER_NAMESPACE}}/{{.PROVIDER_NAME}}/{{.PROVIDER_VERSION}}"
+      - echo "Test directory and provider binary cleaned."
 
   dev:
     desc: Quick development cycle - build and install locally
