@@ -1,0 +1,114 @@
+version: '3'
+
+vars:
+  PROVIDER_NAME: tfplanrecon
+  PROVIDER_NAMESPACE: rileydakota
+  PROVIDER_VERSION: 1.0.0
+  BINARY_NAME: terraform-provider-{{.PROVIDER_NAME}}
+  
+  # Platform detection
+  OS:
+    sh: uname -s | tr '[:upper:]' '[:lower:]'
+  ARCH:
+    sh: uname -m
+  
+  # Convert architecture to Go format
+  GOARCH:
+    sh: |
+      case $(uname -m) in
+        x86_64) echo "amd64" ;;
+        arm64) echo "arm64" ;;
+        *) echo $(uname -m) ;;
+      esac
+  
+  # Convert OS to Go format  
+  GOOS:
+    sh: |
+      case $(uname -s | tr '[:upper:]' '[:lower:]') in
+        darwin) echo "darwin" ;;
+        linux) echo "linux" ;;
+        *) echo $(uname -s | tr '[:upper:]' '[:lower:]') ;;
+      esac
+
+  # Plugin directory
+  PLUGIN_DIR: "{{.HOME}}/.terraform.d/plugins/registry.terraform.io/{{.PROVIDER_NAMESPACE}}/{{.PROVIDER_NAME}}/{{.PROVIDER_VERSION}}/{{.GOOS}}_{{.GOARCH}}"
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list-all
+      - echo ""
+      - echo "Platform detected {{.GOOS}}_{{.GOARCH}}"
+      - echo "Plugin directory {{.PLUGIN_DIR}}"
+
+  build:
+    desc: Build the provider binary
+    cmds:
+      - echo "Building provider for {{.GOOS}}_{{.GOARCH}}..."
+      - GOOS={{.GOOS}} GOARCH={{.GOARCH}} go build -o {{.BINARY_NAME}}
+      - echo "Built {{.BINARY_NAME}}"
+
+  install:
+    desc: Build and install to local Terraform plugins directory
+    deps: [build]
+    cmds:
+      - echo "Creating plugin directory {{.PLUGIN_DIR}}"
+      - mkdir -p "{{.PLUGIN_DIR}}"
+      - echo "Installing provider to {{.PLUGIN_DIR}}/{{.BINARY_NAME}}"
+      - cp {{.BINARY_NAME}} "{{.PLUGIN_DIR}}/{{.BINARY_NAME}}"
+      - chmod +x "{{.PLUGIN_DIR}}/{{.BINARY_NAME}}"
+      - echo "Provider installed successfully!"
+
+  local-install:
+    desc: Install using dev_overrides (recommended for development)
+    deps: [build]
+    cmds:
+      - echo "Installing provider for local development..."
+      - mkdir -p {{.HOME}}/.terraform.d
+      - echo "Creating/updating ~/.terraformrc with dev_overrides..."
+      - echo 'provider_installation {' > {{.HOME}}/.terraformrc
+      - echo '  dev_overrides {' >> {{.HOME}}/.terraformrc
+      - echo '    "registry.terraform.io/{{.PROVIDER_NAMESPACE}}/{{.PROVIDER_NAME}}" = "{{.PWD}}"' >> {{.HOME}}/.terraformrc
+      - echo '  }' >> {{.HOME}}/.terraformrc
+      - echo '  direct {}' >> {{.HOME}}/.terraformrc
+      - echo '}' >> {{.HOME}}/.terraformrc
+      - echo ""
+      - echo "Provider configured for local development!"
+      - echo "Binary location {{.PWD}}/{{.BINARY_NAME}}"
+      - echo ""
+      - echo "WARNING This overwrites ~/.terraformrc. Backup if needed."
+      - echo ""
+      - echo "To test, run 'terraform init' and 'terraform apply' in the examples/ directory."
+
+  test:
+    desc: Run tests
+    cmds:
+      - echo "Running tests..."
+      - go test -v ./...
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "Cleaning build artifacts..."
+      - rm -f {{.BINARY_NAME}}
+      - rm -rf dist/
+      - echo "Clean complete."
+
+  dev:
+    desc: Quick development cycle - build and install locally
+    deps: [local-install]
+    cmds:
+      - echo "Ready for development! Try running:"
+      - echo "  cd examples && terraform init && terraform apply"
+
+  example:
+    desc: Run a quick test with environment variable printing
+    deps: [local-install]
+    dir: examples
+    cmds:
+      - echo "Testing env var print example..."
+      - terraform init
+      - echo "Running with TF_LOG=INFO to see output..."
+      - TF_LOG=INFO terraform apply -auto-approve -var-file=nonexistent.tfvars || true
+      - terraform destroy -auto-approve || true
